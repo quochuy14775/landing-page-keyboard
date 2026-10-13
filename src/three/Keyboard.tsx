@@ -5,6 +5,7 @@ import { useGLTF } from '@react-three/drei'
 import * as THREE from 'three'
 import { story } from '../lib/story'
 import { playKey } from '../lib/sound'
+import { ledFx, ledKeyHit, PALETTE_GLSL, PLATE_D, PLATE_W, stepLedFx } from './palette'
 
 const MODEL_URL = '/models/aula_f75.glb'
 
@@ -26,6 +27,7 @@ const LAYERS: [string, number][] = [
 const STEP = 0.028 // metres per step, same spacing as the Blender animation
 const STAGGER = 0.045
 const KEY_TRAVEL = 0.0038
+const DRAG_SLOP = 6 // px a pressed key may move before it counts as a drag (orbit)
 const HOVER_HINT = 0.16 // fraction of travel a key dips when hovered
 
 // Key press/release motion is authored in Blender (scene "KeyPressAnim", actions
@@ -45,6 +47,10 @@ type KeyState = { mode: 'idle' | 'down' | 'up'; t: number; from: number; x: numb
 const FOCUS_LIFT = 0.008
 
 // see-through parts: transmission is too expensive for the web, fake it with opacity
+// Fixed draw order for the see-through parts, bottom of the stack first. With a fixed
+// order (and no depth writes) they can't swap places frame to frame as the camera
+// moves, which is what made the gaps between keys flicker.
+const SEE_THROUGH_ORDER: Record<string, number> = { Silicone: 1, Pad_PET: 2, Plate_PC: 3, Switch_Top: 4 }
 const SEE_THROUGH: Record<string, number> = {
   Plate_PC: 0.6,
   Switch_Top: 0.5,
@@ -60,12 +66,12 @@ void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(
 `
 const glowFrag = /* glsl */ `
 uniform float uTime; uniform float uIntensity; uniform sampler2D uMask; varying vec2 vUv;
-vec3 hue(float h) { return clamp(abs(mod(h * 6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0); }
+${PALETTE_GLSL}
 void main() {
   // per-LED light pools: brightest right under each switch, dark between them
   float m = texture2D(uMask, vUv).r;
-  vec3 c = hue(vUv.x * 0.9 - uTime * 0.08);
-  gl_FragColor = vec4(c * m * uIntensity * 1.8, 1.0);
+  vec3 c = ledFx(vUv, (vUv - 0.5) * vec2(${PLATE_W}, ${PLATE_D}));
+  gl_FragColor = vec4(c * m * uIntensity * 4.5, 1.0);
 }
 `
 
@@ -101,36 +107,228 @@ function buildLedMask(keyCenters: { x: number; back: number }[]) {
 
 // The translucent switch housings carry the LED colour: this is what you mostly
 // see through the gaps on a real board. Same hue sweep as the light pools.
-const ledGlow = { uLed: { value: 0 }, uRgbTime: { value: 0 } }
+const ledGlow = { uLed: { value: 0 }, ...ledFx }
 function addSwitchGlow(m: THREE.MeshStandardMaterial) {
   m.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, ledGlow)
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>
-varying float vWX;`)
+varying float vWX;
+varying float vWZ;`)
       .replace(
         '#include <project_vertex>',
         `#include <project_vertex>
-vWX = (modelMatrix * vec4(position, 1.0)).x;`,
+#ifdef USE_INSTANCING
+vec4 wp = modelMatrix * instanceMatrix * vec4(position, 1.0);
+vWX = wp.x;
+vWZ = wp.z;
+#else
+vec4 wp = modelMatrix * vec4(position, 1.0);
+vWX = wp.x;
+vWZ = wp.z;
+#endif`,
       )
     shader.fragmentShader = shader.fragmentShader
       .replace(
         '#include <common>',
         `#include <common>
-uniform float uLed; uniform float uRgbTime; varying float vWX;
-vec3 ledHue(float h) { return clamp(abs(mod(h * 6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0); }`,
+uniform float uLed; varying float vWX; varying float vWZ;
+${PALETTE_GLSL}`,
       )
       .replace(
         '#include <emissivemap_fragment>',
         `#include <emissivemap_fragment>
-totalEmissiveRadiance += ledHue((vWX + 0.1524) / 0.3048 * 0.9 - uRgbTime * 0.08) * uLed * 1.4;`,
+vec2 lp = vec2(vWX, -vWZ);
+totalEmissiveRadiance += ledFx(lp / vec2(${PLATE_W}, ${PLATE_D}) + 0.5, lp) * uLed * 3.0;`,
       )
   }
-  m.customProgramCacheKey = () => 'switchglow'
+  m.customProgramCacheKey = () => 'switchglow-fx'
 }
 
 const smooth = (t: number) => t * t * (3 - 2 * t)
 const damp = (x: number, to: number, lambda: number, dt: number) => x + (to - x) * (1 - Math.exp(-lambda * dt))
+
+function buildRig(scene: THREE.Object3D) {
+  scene.updateMatrixWorld(true)
+
+  // the silicone mat sits exactly on the cavity floor and the base foam exactly on the mat;
+  // lift them a hair so the coplanar faces don't z-fight (flicker) while layers move
+  const LIFT: Record<string, number> = { L_Silicone_Mat: 0.0003, L_PO_BaseFoam: 0.0006 }
+  const layers = LAYERS.map(([name, k]) => {
+    const obj = scene.getObjectByName(name)!
+    obj.position.y += LIFT[name] ?? 0
+    return { obj, k, base: obj.position.y }
+  })
+
+  let ledSlot: THREE.MeshStandardMaterial | null = null
+  scene.traverse((o) => {
+    const mesh = o as THREE.Mesh
+    if (!mesh.isMesh) return
+    const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+    for (const m of mats as THREE.MeshPhysicalMaterial[]) {
+      const opacity = SEE_THROUGH[m.name]
+      if (opacity !== undefined) {
+        m.transmission = 0
+        m.transparent = true
+        m.opacity = opacity
+        m.depthWrite = false
+        mesh.renderOrder = SEE_THROUGH_ORDER[m.name] ?? 0
+      }
+      if (m.name.startsWith('Keycap_')) m.roughness = 0.62
+      if (m.name === 'Switch_Top') addSwitchGlow(m)
+      if (m.name === 'LED_Slot') {
+        m.emissive = new THREE.Color('#a8d8ff')
+        m.emissiveIntensity = 0
+        ledSlot = m
+      }
+      m.envMapIntensity = 1
+    }
+  })
+
+  // 80 identical switches x 4 parts = 320 draw calls. Rebuild them as one InstancedMesh
+  // per part (4 draw calls); switches never move on their own, only with their layer.
+  const switchLayer = scene.getObjectByName('L_Switches')!
+  const groups = new Map<string, { geo: THREE.BufferGeometry; mat: THREE.Material; matrices: THREE.Matrix4[] }>()
+  const toLayer = new THREE.Matrix4().copy(switchLayer.matrixWorld).invert()
+  for (const sw of [...switchLayer.children]) {
+    sw.traverse((o) => {
+      const m = o as THREE.Mesh
+      if (!m.isMesh) return
+      const mat = m.material as THREE.Material
+      const key = m.geometry.uuid + mat.uuid
+      const g = groups.get(key) ?? { geo: m.geometry, mat, matrices: [] }
+      g.matrices.push(new THREE.Matrix4().multiplyMatrices(toLayer, m.matrixWorld))
+      groups.set(key, g)
+    })
+    switchLayer.remove(sw)
+  }
+  for (const { geo, mat, matrices } of groups.values()) {
+    const inst = new THREE.InstancedMesh(geo, mat, matrices.length)
+    inst.renderOrder = SEE_THROUGH_ORDER[mat.name] ?? 0
+    matrices.forEach((mx, i) => inst.setMatrixAt(i, mx))
+    inst.instanceMatrix.needsUpdate = true
+    inst.computeBoundingSphere()
+    switchLayer.add(inst)
+  }
+
+  // keycaps + their legends/homing bars move together when pressed
+  const keyLayer = scene.getObjectByName('L_Keycaps')!
+  const keys = new Map<string, KeyRig>()
+  for (const child of keyLayer.children) {
+    if (!child.name.startsWith('Key_')) continue
+    const id = child.name.slice(4)
+    const parts = [child]
+    for (const prefix of ['Leg_', 'Homing_']) {
+      const p = keyLayer.getObjectByName(prefix + id)
+      if (p) parts.push(p)
+    }
+    keys.set(child.name, { parts, base: parts.map((p) => p.position.y) })
+  }
+
+  // Pointer picking: only keycaps are interactive, and a keycap is tested against its
+  // bounding box instead of ~4k triangles. Everything else opts out of raycasting, so a
+  // pointer move costs 80 box tests instead of hundreds of thousands of triangles.
+  const capObjects = new Set<THREE.Object3D>([...keys.values()].map((k) => k.parts[0]))
+  const noRaycast = () => {}
+  const invMatrix = new THREE.Matrix4()
+  const localRay = new THREE.Ray()
+  const hitPoint = new THREE.Vector3()
+  scene.traverse((o) => {
+    const mesh = o as THREE.Mesh
+    if (!mesh.isMesh) return
+    if (!capObjects.has(mesh)) {
+      mesh.raycast = noRaycast
+      return
+    }
+    mesh.geometry.computeBoundingBox()
+    const box = mesh.geometry.boundingBox!
+    mesh.raycast = function (raycaster, intersects) {
+      invMatrix.copy(this.matrixWorld).invert()
+      localRay.copy(raycaster.ray).applyMatrix4(invMatrix)
+      if (!localRay.intersectBox(box, hitPoint)) return
+      hitPoint.applyMatrix4(this.matrixWorld)
+      const distance = raycaster.ray.origin.distanceTo(hitPoint)
+      if (distance < raycaster.near || distance > raycaster.far) return
+      intersects.push({ distance, point: hitPoint.clone(), object: this })
+    }
+  })
+
+  // re-pivot the knob around its own axis so it can spin in place
+  const knob = scene.getObjectByName('VolumeKnob')!
+  const knobParent = knob.parent!
+  const center = new THREE.Box3().setFromObject(knob).getCenter(new THREE.Vector3())
+  const pivot = new THREE.Group()
+  knobParent.add(pivot)
+  pivot.position.copy(knobParent.worldToLocal(center.clone()))
+  pivot.updateMatrixWorld(true)
+  pivot.attach(knob)
+
+  // RGB underglow: an additive sheet just above the plate, seen through the key gaps
+  const glowMat = new THREE.ShaderMaterial({
+    vertexShader: glowVert,
+    fragmentShader: glowFrag,
+    uniforms: {
+      ...ledFx,
+      uTime: { value: 0 },
+      uIntensity: { value: 0 },
+      uMask: { value: buildLedMask([...keys.values()].map((k) => ({ x: k.parts[0].position.x, back: -k.parts[0].position.z }))) },
+    },
+    // add light to the colour only: plain additive blending also adds alpha, which
+      // paints opaque black over the page wherever the canvas is transparent
+      blending: THREE.CustomBlending,
+      blendEquation: THREE.AddEquation,
+      blendSrc: THREE.OneFactor,
+      blendDst: THREE.OneFactor,
+      blendSrcAlpha: THREE.ZeroFactor,
+      blendDstAlpha: THREE.OneFactor,
+    depthWrite: false,
+    transparent: true,
+    toneMapped: false,
+  })
+  const glow = new THREE.Mesh(new THREE.PlaneGeometry(GLOW_W, GLOW_D), glowMat)
+  glow.rotation.x = -Math.PI / 2
+  glow.position.y = -0.0088
+  glow.visible = false
+  scene.getObjectByName('L_Plate')!.add(glow)
+
+  // Layers below the plate: fully enclosed when the board is assembled.
+  const hidden = new Set(['L_PO_Foam', 'L_IXPE_Pad', 'L_PET_Pad', 'L_PCB', 'L_PO_BaseFoam', 'L_Silicone_Mat'])
+  const enclosed = layers.filter((l) => hidden.has(l.obj.name)).map((l) => l.obj)
+
+  // Per-layer bounds in each layer's own space, for cheap layer picking in the viewer
+  // (12 box tests instead of raycasting every triangle).
+  scene.updateMatrixWorld(true)
+  const layerBoxes = layers.map(({ obj }) => {
+    const toLocal = new THREE.Matrix4().copy(obj.matrixWorld).invert()
+    const box = new THREE.Box3()
+    obj.traverse((o) => {
+      const m = o as THREE.Mesh
+      if (!m.isMesh || m === glow) return
+      let b: THREE.Box3
+      if ((m as THREE.InstancedMesh).isInstancedMesh) {
+        const inst = m as THREE.InstancedMesh
+        inst.computeBoundingBox()
+        b = inst.boundingBox!.clone()
+      } else {
+        m.geometry.computeBoundingBox()
+        b = m.geometry.boundingBox!.clone()
+      }
+      box.union(b.applyMatrix4(new THREE.Matrix4().multiplyMatrices(toLocal, m.matrixWorld)))
+    })
+    return box
+  })
+
+  return {
+    layers,
+    keys,
+    pivot,
+    glow,
+    glowMat,
+    enclosed,
+    layerBoxes,
+    ledSlot: ledSlot as THREE.MeshStandardMaterial | null,
+  }
+}
 
 export function Keyboard() {
   const { scene } = useGLTF(MODEL_URL)
@@ -143,85 +341,14 @@ export function Keyboard() {
     [animations],
   )
 
-  const rig = useMemo(() => {
-    scene.updateMatrixWorld(true)
-    const layers = LAYERS.map(([name, k]) => {
-      const obj = scene.getObjectByName(name)!
-      return { obj, k, base: obj.position.y }
-    })
-
-    let ledSlot: THREE.MeshStandardMaterial | null = null
-    scene.traverse((o) => {
-      const mesh = o as THREE.Mesh
-      if (!mesh.isMesh) return
-      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
-      for (const m of mats as THREE.MeshPhysicalMaterial[]) {
-        const opacity = SEE_THROUGH[m.name]
-        if (opacity !== undefined) {
-          m.transmission = 0
-          m.transparent = true
-          m.opacity = opacity
-        }
-        if (m.name.startsWith('Keycap_')) m.roughness = 0.62
-        if (m.name === 'Switch_Top') addSwitchGlow(m)
-        if (m.name === 'LED_Slot') {
-          m.emissive = new THREE.Color('#a8d8ff')
-          m.emissiveIntensity = 0
-          ledSlot = m
-        }
-        m.envMapIntensity = 1
-      }
-    })
-
-    // keycaps + their legends/homing bars move together when pressed
-    const keyLayer = scene.getObjectByName('L_Keycaps')!
-    const keys = new Map<string, KeyRig>()
-    for (const child of keyLayer.children) {
-      if (!child.name.startsWith('Key_')) continue
-      const id = child.name.slice(4)
-      const parts = [child]
-      for (const prefix of ['Leg_', 'Homing_']) {
-        const p = keyLayer.getObjectByName(prefix + id)
-        if (p) parts.push(p)
-      }
-      keys.set(child.name, { parts, base: parts.map((p) => p.position.y) })
-    }
-
-    // re-pivot the knob around its own axis so it can spin in place
-    const knob = scene.getObjectByName('VolumeKnob')!
-    const knobParent = knob.parent!
-    const center = new THREE.Box3().setFromObject(knob).getCenter(new THREE.Vector3())
-    const pivot = new THREE.Group()
-    knobParent.add(pivot)
-    pivot.position.copy(knobParent.worldToLocal(center.clone()))
-    pivot.updateMatrixWorld(true)
-    pivot.attach(knob)
-
-    // RGB underglow: an additive sheet just above the plate, seen through the key gaps
-    const glowMat = new THREE.ShaderMaterial({
-      vertexShader: glowVert,
-      fragmentShader: glowFrag,
-      uniforms: {
-        uTime: { value: 0 },
-        uIntensity: { value: 0 },
-        uMask: { value: buildLedMask([...keys.values()].map((k) => ({ x: k.parts[0].position.x, back: -k.parts[0].position.z }))) },
-      },
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-      transparent: true,
-      toneMapped: false,
-    })
-    const glow = new THREE.Mesh(new THREE.PlaneGeometry(GLOW_W, GLOW_D), glowMat)
-    glow.rotation.x = -Math.PI / 2
-    glow.position.y = -0.0088
-    glow.visible = false
-    scene.getObjectByName('L_Plate')!.add(glow)
-
-    return { layers, keys, pivot, glow, glowMat, ledSlot: ledSlot as THREE.MeshStandardMaterial | null }
-  }, [scene])
+  // The rig mutates the cached glTF scene (instancing, re-pivots, extra meshes), so it
+  // must be built exactly once per scene: StrictMode double-invokes memos and the page
+  // can remount, and a second pass would rebuild on already-rebuilt objects.
+  const rig = useMemo(() => (scene.userData.f75Rig ??= buildRig(scene)) as ReturnType<typeof buildRig>, [scene])
 
   const clock = useRef(0)
   const keyState = useRef(new Map<string, KeyState>())
+  const downAt = useRef<{ x: number; y: number } | null>(null)
   const down = useRef(new Set<string>())
 
   useFrame((_, dt) => {
@@ -247,6 +374,8 @@ export function Keyboard() {
       if (want > 0.5 && !down.current.has(name)) {
         down.current.add(name)
         playKey(name === 'Key_SPACE' ? 'space' : 'down')
+        const cap = key.parts[0].position
+        ledKeyHit(cap.x, -cap.z, name === 'Key_SPACE' ? 1.3 : 1)
       } else if (want <= 0.5 && down.current.has(name)) {
         down.current.delete(name)
         playKey('up')
@@ -281,6 +410,15 @@ export function Keyboard() {
 
     rig.pivot.rotation.y = -cur.knob
 
+    // closed board: skip the layers under the plate, nothing can see them
+    const open = cur.explode > 0.002 || rig.layers.some((l) => Math.abs(l.obj.position.y - l.base) > 1e-4)
+    // isolate mode (3D viewer): only the inspected layer stays visible
+    const iso = story.isolate
+    for (let i = 0; i < rig.layers.length; i++) {
+      const o = rig.layers[i].obj
+      o.visible = (iso < 0 || iso === i) && (open || !rig.enclosed.includes(o))
+    }
+
     const led = cur.led
     rig.glow.visible = led > 0.01
     rig.glowMat.uniforms.uIntensity.value = led
@@ -289,7 +427,7 @@ export function Keyboard() {
     if (rig.glow.visible) {
       clock.current += dt
       rig.glowMat.uniforms.uTime.value = clock.current
-      ledGlow.uRgbTime.value = clock.current
+      stepLedFx(dt)
       busy = true
     }
 
@@ -319,23 +457,60 @@ export function Keyboard() {
     const n = e.object.name
     const name = n.startsWith('Key_') ? n : n.startsWith('Leg_') ? 'Key_' + n.slice(4) : null
     if (name && rig.keys.has(name)) {
-      e.stopPropagation()
       story.held = name
+      downAt.current = { x: e.nativeEvent.clientX, y: e.nativeEvent.clientY }
       story.invalidate()
     }
   }
-  // release anywhere, even if the pointer slid off the key
+  // layer picking / bounds for the 3D viewer's layer explorer
+  useEffect(() => {
+    const inv = new THREE.Matrix4()
+    const local = new THREE.Ray()
+    const hit = new THREE.Vector3()
+    story.pickLayer = (ray) => {
+      let best = -1
+      let bestD = Infinity
+      rig.layers.forEach(({ obj }, i) => {
+        if (!obj.visible) return
+        inv.copy(obj.matrixWorld).invert()
+        local.copy(ray).applyMatrix4(inv)
+        if (!local.intersectBox(rig.layerBoxes[i], hit)) return
+        const d = hit.applyMatrix4(obj.matrixWorld).distanceTo(ray.origin)
+        if (d < bestD) {
+          bestD = d
+          best = i
+        }
+      })
+      return best
+    }
+    story.layerBounds = (i) => rig.layerBoxes[i].clone().applyMatrix4(rig.layers[i].obj.matrixWorld)
+    return () => {
+      story.pickLayer = null
+      story.layerBounds = null
+    }
+  }, [rig])
+
+  // release anywhere, even if the pointer slid off the key; a drag past a few pixels
+  // means the visitor is grabbing the board to orbit, so let go of the key
   useEffect(() => {
     const up = () => {
+      downAt.current = null
       if (!story.held) return
       story.held = null
       story.invalidate()
     }
+    const move = (e: PointerEvent) => {
+      const d = downAt.current
+      if (!story.held || !d) return
+      if (Math.hypot(e.clientX - d.x, e.clientY - d.y) > DRAG_SLOP) up()
+    }
     window.addEventListener('pointerup', up)
     window.addEventListener('pointercancel', up)
+    window.addEventListener('pointermove', move, { passive: true })
     return () => {
       window.removeEventListener('pointerup', up)
       window.removeEventListener('pointercancel', up)
+      window.removeEventListener('pointermove', move)
     }
   }, [])
 

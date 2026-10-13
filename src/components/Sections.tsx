@@ -5,7 +5,7 @@ import { scrollToId, useStoryTrigger } from '../lib/scroll'
 import { SHOTS, story } from '../lib/story'
 import { setSoundEnabled } from '../lib/sound'
 import { formatVnd } from '../lib/format'
-import { Eyebrow, Panel, Reveal, WordsIn } from './ui'
+import { Eyebrow, Icon, Panel, Reveal, WordsIn, type IconName } from './ui'
 
 // Camera paths – module constants so the scroll triggers are created once.
 const P_HERO = [SHOTS.hero, SHOTS.keys]
@@ -38,26 +38,41 @@ export function Hero() {
         </h1>
       </div>
       <div className="relative flex w-full flex-col items-start justify-between gap-6 md:flex-row md:items-end">
-        <Reveal delay={0.9} className="max-w-md">
-          <p className="text-xl font-semibold text-balance md:text-2xl">{PRODUCT.tagline}</p>
-          <p className="mt-3 text-mute">Bấm thử bất kỳ phím nào trên bàn phím 3D.</p>
-        </Reveal>
-        <Reveal delay={1.05} className="flex gap-3">
+        <div className="max-w-md">
+          <Reveal delay={0.9}>
+            <p className="text-xl font-semibold text-balance md:text-2xl">{PRODUCT.tagline}</p>
+            <p className="mt-3 text-mute">Bấm thử bất kỳ phím nào trên bàn phím 3D.</p>
+          </Reveal>
+          <ul className="mt-5 flex flex-wrap gap-2">
+            {HERO_CHIPS.map((c, i) => (
+              <motion.li
+                key={c.label}
+                initial={{ opacity: 0, y: 12, scale: 0.96 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1], delay: 1.15 + i * 0.08 }}
+                className="flex items-center gap-1.5 rounded-full py-1.5 pr-3 pl-2 text-xs font-semibold glass ring-1 ring-white/70"
+              >
+                <Icon name={c.icon} className="h-4 w-4 text-ice-600" />
+                {c.label}
+              </motion.li>
+            ))}
+          </ul>
+        </div>
+        {/* single quiet invite into the story; buying lives in the navbar and the sticky bar */}
+        <Reveal delay={1.05}>
           <motion.button
-            whileHover={{ y: -2 }}
-            whileTap={{ scale: 0.97 }}
-            onClick={() => scrollToId('mua-ngay')}
-            className="rounded-2xl bg-ink px-6 py-3.5 font-semibold text-white shadow-[0_14px_30px_-12px_rgba(15,27,45,0.6)]"
-          >
-            Mua ngay
-          </motion.button>
-          <motion.button
-            whileHover={{ y: -2 }}
+            initial="rest"
+            whileHover="hover"
             whileTap={{ scale: 0.97 }}
             onClick={() => scrollToId('cau-truc')}
-            className="rounded-2xl px-6 py-3.5 font-semibold glass ring-1 ring-white/70"
+            className="group flex items-center gap-3 rounded-full py-2 pr-2 pl-5 text-sm font-semibold glass ring-1 ring-white/70"
           >
-            Xem cấu trúc
+            Khám phá 12 lớp cấu trúc
+            <span className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-ink text-white">
+              <motion.span variants={{ rest: { y: 0 }, hover: { y: [0, 14, -14, 0] } }} transition={{ duration: 0.5 }}>
+                ↓
+              </motion.span>
+            </span>
           </motion.button>
         </Reveal>
       </div>
@@ -75,6 +90,13 @@ export function Hero() {
   )
 }
 
+const HERO_CHIPS: { icon: IconName; label: string }[] = [
+  { icon: 'grid', label: 'Layout 75%' },
+  { icon: 'layers', label: 'Gasket · 5 lớp tiêu âm' },
+  { icon: 'signal', label: '3 chế độ kết nối' },
+  { icon: 'battery', label: '4000 mAh' },
+]
+
 /* -------------------------------------------------------------- keycaps */
 const TYPE = [
   ['A', 'Key_A'],
@@ -86,6 +108,12 @@ const TYPE = [
   ['7', 'Key_7_&'],
   ['5', 'Key_5_%'],
 ] as const
+
+const KEYCAP_FEATURES: { icon: IconName; t: string; d: string }[] = [
+  { icon: 'layers', t: 'Double-shot', d: 'Hai lớp nhựa đúc, chữ không bao giờ mờ.' },
+  { icon: 'curve', t: 'Cherry profile', d: 'Thấp, nghiêng theo hàng, ôm ngón khi gõ lâu.' },
+  { icon: 'type', t: 'Side-print', d: 'Chữ in mặt trước, mặt phím sạch và tối giản.' },
+]
 
 export function Keycaps() {
   const ref = useRef<HTMLElement>(null)
@@ -106,9 +134,9 @@ export function Keycaps() {
 
   return (
     <section id="keycap" ref={ref} className="relative h-[260vh]">
-      <div className="sticky top-0 flex h-svh items-end justify-end px-4 pb-24 md:items-center md:px-12 md:pb-0">
+      <div className="sticky top-0 flex h-svh items-end justify-end px-4 pb-24 md:items-center md:pr-24 md:pl-12 md:pb-0">
         <Panel className="w-full max-w-md">
-          <Eyebrow>Keycap PBT double-shot</Eyebrow>
+          <Eyebrow index={1}>Keycap PBT double-shot</Eyebrow>
           <h2 className="text-2xl leading-tight font-bold text-balance sm:text-3xl md:text-4xl">
             <WordsIn text="Chạm vào là thấy khác." />
           </h2>
@@ -124,10 +152,18 @@ export function Keycaps() {
               transition={{ duration: 1, repeat: Infinity }}
             />
           </div>
-          <ul className="mt-6 hidden grid-cols-3 gap-3 text-center text-xs font-semibold sm:grid">
-            {['Double-shot', 'Cherry profile', 'Side-print'].map((t, i) => (
-              <Reveal key={t} delay={i * 0.08} y={16}>
-                <li className="rounded-xl bg-ice-50 px-2 py-3 ring-1 ring-ice-100">{t}</li>
+          <ul className="mt-6 hidden gap-2.5 sm:grid">
+            {KEYCAP_FEATURES.map((f, i) => (
+              <Reveal key={f.t} delay={i * 0.08} y={14}>
+                <li className="flex items-center gap-3 rounded-2xl bg-white/60 p-2.5 pr-4 ring-1 ring-ice-100">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-ice-50 text-ice-600 ring-1 ring-ice-100">
+                    <Icon name={f.icon} className="h-[18px] w-[18px]" />
+                  </span>
+                  <span>
+                    <span className="block text-sm font-semibold">{f.t}</span>
+                    <span className="block text-xs text-mute">{f.d}</span>
+                  </span>
+                </li>
               </Reveal>
             ))}
           </ul>
@@ -138,13 +174,14 @@ export function Keycaps() {
 }
 
 /* ----------------------------------------------------------------- knob */
+const RING_LEN = 2 * Math.PI * 42
 export function Knob() {
   const ref = useRef<HTMLElement>(null)
-  const bar = useRef<HTMLDivElement>(null)
+  const ring = useRef<SVGCircleElement>(null)
   const label = useRef<HTMLSpanElement>(null)
   const onProgress = useCallback((p: number) => {
     const v = Math.round(Math.min(1, Math.max(0, (p - 0.5) / 0.5)) * 100)
-    if (bar.current) bar.current.style.transform = `scaleX(${v / 100})`
+    if (ring.current) ring.current.style.strokeDashoffset = String(RING_LEN * (1 - v / 100))
     if (label.current) label.current.textContent = String(v)
   }, [])
   useStoryTrigger(ref, { path: P_KNOB, onProgress })
@@ -152,7 +189,7 @@ export function Knob() {
     <section id="knob" ref={ref} className="relative h-[220vh]">
       <div className="sticky top-0 flex h-svh items-end px-4 pb-24 md:items-center md:px-12 md:pb-0">
         <Panel className="w-full max-w-md">
-          <Eyebrow>Núm nhôm CNC</Eyebrow>
+          <Eyebrow index={2}>Núm nhôm CNC</Eyebrow>
           <h2 className="text-2xl leading-tight font-bold text-balance sm:text-3xl md:text-4xl">
             <WordsIn text="Âm lượng trong một vòng xoay." />
           </h2>
@@ -160,15 +197,39 @@ export function Knob() {
             Vòng nhôm tiện nguyên khối, mép vát bóng, mặt chèn trắng nhám. Xoay mượt, có nấc, điều chỉnh âm lượng ngay
             trên bàn phím.
           </p>
-          <div className="mt-5 md:mt-7">
-            <div className="mb-2 flex items-center justify-between text-xs font-semibold text-mute">
-              <span>Âm lượng</span>
-              <span className="tabular-nums text-ink">
-                <span ref={label}>0</span>%
+          <div className="mt-5 flex items-center gap-5 md:mt-7">
+            <div className="relative h-24 w-24 shrink-0">
+              <svg viewBox="0 0 100 100" className="h-full w-full -rotate-90" aria-hidden>
+                <circle cx="50" cy="50" r="42" fill="none" stroke="var(--color-ice-100)" strokeWidth="7" />
+                <circle
+                  ref={ring}
+                  cx="50"
+                  cy="50"
+                  r="42"
+                  fill="none"
+                  stroke="url(#knobGrad)"
+                  strokeWidth="7"
+                  strokeLinecap="round"
+                  strokeDasharray={RING_LEN}
+                  strokeDashoffset={RING_LEN}
+                />
+                <defs>
+                  <linearGradient id="knobGrad" x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0" stopColor="var(--color-ice-300)" />
+                    <stop offset="1" stopColor="var(--color-ice-600)" />
+                  </linearGradient>
+                </defs>
+              </svg>
+              <span className="absolute inset-0 flex items-center justify-center">
+                <Icon name="volume" className="h-6 w-6 text-ice-600" />
               </span>
             </div>
-            <div className="h-2 overflow-hidden rounded-full bg-ice-100">
-              <div ref={bar} className="h-full origin-left scale-x-0 rounded-full bg-gradient-to-r from-ice-300 to-ice-600" />
+            <div>
+              <p className="font-mono text-[11px] tracking-[0.16em] text-mute uppercase">Âm lượng</p>
+              <p className="font-display text-6xl leading-none font-bold tabular-nums">
+                <span ref={label}>0</span>
+                <span className="text-2xl text-mute">%</span>
+              </p>
             </div>
           </div>
         </Panel>
@@ -182,6 +243,41 @@ export function Structure() {
   const ref = useRef<HTMLElement>(null)
   const [active, setActive] = useState(-1)
   const stage = useRef<HTMLParagraphElement>(null)
+  const items = useRef<(HTMLLIElement | null)[]>([])
+  const path = useRef<SVGPathElement>(null)
+  const dot = useRef<SVGGElement>(null)
+
+  // leader line: active list row -> layer on the 3D model (position published by the camera rig)
+  useEffect(() => {
+    const line = path.current
+    const marker = dot.current
+    if (active < 0 || !line || !marker) return
+    let raf = 0
+    const hide = () => {
+      line.setAttribute('d', '')
+      marker.setAttribute('opacity', '0')
+    }
+    const draw = () => {
+      raf = requestAnimationFrame(draw)
+      const el = items.current[active]
+      const st = document.documentElement.style // set inline by the camera rig, no style recalc
+      if (!el || st.getPropertyValue('--callout-on') !== '1' || el.offsetParent === null) return hide()
+      const r = el.getBoundingClientRect()
+      const x1 = r.left - 6
+      const y1 = r.top + r.height / 2
+      const x2 = parseFloat(st.getPropertyValue('--callout-x'))
+      const y2 = parseFloat(st.getPropertyValue('--callout-y'))
+      const mid = x1 - Math.max(24, (x1 - x2) * 0.35)
+      line.setAttribute('d', `M${x1},${y1} H${mid} L${x2},${y2}`)
+      marker.setAttribute('transform', `translate(${x2},${y2})`)
+      marker.setAttribute('opacity', '1')
+    }
+    draw()
+    return () => {
+      cancelAnimationFrame(raf)
+      hide()
+    }
+  }, [active])
   const onProgress = useCallback((p: number) => {
     // after the explode leg (first 45%), walk through the layers top -> bottom
     const walk = (p - 0.45) / 0.55
@@ -194,9 +290,18 @@ export function Structure() {
 
   return (
     <section id="cau-truc" ref={ref} className="relative h-[520vh]">
-      <div className="sticky top-0 flex h-svh items-end justify-end px-4 pb-24 md:items-center md:px-12 md:pb-0">
+      <div className="sticky top-0 flex h-svh items-end justify-end px-4 pb-24 md:items-center md:pr-24 md:pl-12 md:pb-0">
+        <svg className="pointer-events-none fixed inset-0 hidden h-full w-full md:block" aria-hidden>
+          <path ref={path} fill="none" stroke="var(--color-ice-600)" strokeWidth="1.5" strokeDasharray="4 3" />
+          <g ref={dot} opacity="0">
+            <circle r="10" fill="var(--color-ice-600)" opacity="0.18">
+              <animate attributeName="r" values="6;14;6" dur="1.8s" repeatCount="indefinite" />
+            </circle>
+            <circle r="4.5" fill="white" stroke="var(--color-ice-600)" strokeWidth="2" />
+          </g>
+        </svg>
         <Panel className="w-full max-w-md md:!p-7">
-          <Eyebrow>Advanced Structure</Eyebrow>
+          <Eyebrow index={3}>Advanced Structure</Eyebrow>
           <h2 className="text-2xl leading-tight font-bold text-balance sm:text-3xl md:text-4xl">
             <WordsIn text="12 lớp. Một cảm giác gõ." />
           </h2>
@@ -226,6 +331,9 @@ export function Structure() {
               return (
                 <motion.li
                   key={l.id}
+                  ref={(el) => {
+                    items.current[i] = el
+                  }}
                   layout
                   animate={{ opacity: active < 0 ? 0.85 : on ? 1 : 0.38 }}
                   transition={{ duration: 0.35 }}
@@ -263,7 +371,7 @@ export function Sound() {
   return (
     <section id="am-thanh" ref={ref} className="relative h-[200vh]">
       <div className="sticky top-0 flex h-svh flex-col items-center justify-end px-4 pb-24 text-center md:justify-start md:px-5 md:pt-32 md:pb-0">
-        <Eyebrow>Gasket mount · tiêu âm 5 lớp</Eyebrow>
+        <Eyebrow index={4}>Gasket mount · tiêu âm 5 lớp</Eyebrow>
         <h2 className="max-w-3xl text-3xl leading-tight font-bold text-balance sm:text-4xl md:text-6xl">
           <WordsIn text="Âm trầm, gọn, không tiếng rỗng." />
         </h2>
@@ -350,7 +458,7 @@ export function Connect() {
       <div className="sticky top-0 flex h-svh flex-col justify-end px-4 pb-24 md:px-12 md:pb-28">
         <div className="grid gap-4 md:grid-cols-[1.1fr_3fr] md:items-end">
           <Reveal>
-            <Eyebrow>Kết nối 3 chế độ</Eyebrow>
+            <Eyebrow index={5}>Kết nối 3 chế độ</Eyebrow>
             <h2 className="text-2xl leading-tight font-bold text-balance sm:text-3xl md:text-4xl">
               <WordsIn text="Một bàn phím, mọi thiết bị." />
             </h2>
@@ -383,7 +491,7 @@ export function Rgb() {
   return (
     <section id="rgb" ref={ref} className="relative h-[240vh] text-white">
       <div className="sticky top-0 flex h-svh flex-col items-center justify-end px-5 pb-28 text-center">
-        <Eyebrow dark>RGB · 16,8 triệu màu</Eyebrow>
+        <Eyebrow dark index={6}>RGB · 16,8 triệu màu</Eyebrow>
         <h2 className="text-4xl leading-tight font-bold text-balance md:text-6xl">
           <span className="bg-[linear-gradient(90deg,#ff5f6d,#ffc371,#7ef29d,#5ec8ff,#b28dff,#ff5f6d)] bg-[length:200%_100%] bg-clip-text text-transparent [animation:hue_6s_linear_infinite]">
             Sáng theo cách của bạn.
@@ -399,21 +507,40 @@ export function Rgb() {
 }
 
 /* ---------------------------------------------------------- specs + buy */
+const SPEC_ICONS: Record<string, IconName> = {
+  Layout: 'grid',
+  'Cấu trúc': 'layers',
+  'Tiêu âm': 'wave',
+  Plate: 'plate',
+  Switch: 'switch',
+  Keycap: 'type',
+  'Kết nối': 'signal',
+  Pin: 'battery',
+  'Đèn nền': 'sparkle',
+  'Tương thích': 'devices',
+}
 export function Specs() {
   const ref = useRef<HTMLElement>(null)
   useStoryTrigger(ref, { path: P_OUTRO, start: 'top bottom', end: 'top top', edge: 'last' })
   return (
     <section id="thong-so" ref={ref} className="front relative bg-paper/80 px-5 py-28 backdrop-blur-sm md:px-12">
       <div className="mx-auto max-w-6xl">
-        <Eyebrow>Thông số kỹ thuật</Eyebrow>
+        <Eyebrow index={7}>Thông số kỹ thuật</Eyebrow>
         <h2 className="text-3xl font-bold md:text-5xl">
           <WordsIn text="Mọi thứ bạn cần biết." />
         </h2>
-        <dl className="mt-12 grid gap-px overflow-hidden rounded-3xl bg-ice-100 ring-1 ring-ice-100 sm:grid-cols-2 lg:grid-cols-3">
+        <dl className="mt-12 grid gap-px overflow-hidden rounded-3xl bg-ice-100 ring-1 ring-ice-100 sm:grid-cols-2 lg:grid-cols-5">
           {SPECS.map((s, i) => (
-            <Reveal key={s.k} delay={(i % 3) * 0.06} y={20} className="bg-white/90 p-6">
-              <dt className="font-mono text-[11px] tracking-[0.16em] text-mute uppercase">{s.k}</dt>
-              <dd className="mt-2 font-display text-xl font-semibold">{s.v}</dd>
+            <Reveal key={s.k} delay={(i % 5) * 0.05} y={20} className="group bg-white/90 p-5 transition-colors hover:bg-white lg:p-6">
+              <div className="flex flex-col items-start gap-3">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-ice-50 text-ice-600 ring-1 ring-ice-100 transition-transform duration-300 group-hover:-translate-y-0.5 group-hover:rotate-[-6deg]">
+                  <Icon name={SPEC_ICONS[s.k] ?? 'grid'} className="h-5 w-5" />
+                </span>
+                <span>
+                  <dt className="font-mono text-[11px] tracking-[0.16em] text-mute uppercase">{s.k}</dt>
+                  <dd className="mt-1.5 font-display text-xl font-semibold">{s.v}</dd>
+                </span>
+              </div>
             </Reveal>
           ))}
         </dl>
@@ -436,17 +563,32 @@ export function Buy() {
           <div className="mt-8 flex flex-wrap gap-3">
             <motion.a
               href={PRODUCT.buyUrl}
-              whileHover={{ y: -2 }}
-              whileTap={{ scale: 0.97 }}
-              className="rounded-2xl bg-ice-300 px-7 py-4 font-bold text-ink"
+              initial="rest"
+              whileHover="hover"
+              whileTap="press"
+              variants={{
+                rest: { y: 0, boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.6), 0 4px 0 #5f93c9' },
+                hover: { y: -1, boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.6), 0 5px 0 #5f93c9' },
+                press: { y: 3, boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.6), 0 1px 0 #5f93c9' },
+              }}
+              transition={{ type: 'spring', stiffness: 700, damping: 30 }}
+              className="flex items-center gap-2 rounded-2xl bg-gradient-to-b from-ice-200 to-ice-300 px-7 py-4 font-bold text-ink"
             >
               Đặt mua ngay
+              <Icon name="arrow" className="h-4 w-4" />
             </motion.a>
             <motion.a
               href={PRODUCT.contactUrl}
-              whileHover={{ y: -2 }}
-              whileTap={{ scale: 0.97 }}
-              className="rounded-2xl px-7 py-4 font-semibold ring-1 ring-white/25"
+              initial="rest"
+              whileHover="hover"
+              whileTap="press"
+              variants={{
+                rest: { y: 0, boxShadow: '0 4px 0 rgba(255,255,255,0.12)' },
+                hover: { y: -1, boxShadow: '0 5px 0 rgba(255,255,255,0.12)' },
+                press: { y: 3, boxShadow: '0 1px 0 rgba(255,255,255,0.12)' },
+              }}
+              transition={{ type: 'spring', stiffness: 700, damping: 30 }}
+              className="rounded-2xl bg-white/5 px-7 py-4 font-semibold ring-1 ring-white/20"
             >
               Tư vấn
             </motion.a>

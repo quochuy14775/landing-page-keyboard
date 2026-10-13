@@ -6,6 +6,8 @@ import { story } from '../lib/story'
 const target = new THREE.Vector3()
 const offset = new THREE.Vector3()
 let lastDark = -1
+const anchor = new THREE.Vector3()
+let lastAnchor = ''
 
 const damp = (x: number, to: number, lambda: number, dt: number) => x + (to - x) * (1 - Math.exp(-lambda * dt))
 
@@ -55,6 +57,28 @@ export function CameraRig() {
     if (aspect < 1) target.x = cur.px ?? target.x // re-centre the board horizontally on phones
     camera.position.copy(target).add(offset)
     camera.lookAt(target)
+
+    // structure callout: screen position of the layer being described (right edge, mid
+    // height), published as CSS variables for the DOM leader line. Read-only, the camera
+    // and layer animation are untouched.
+    const fl = story.focusLayer
+    const b = fl >= 0 && cur.explode > 0.9 && story.layerBounds ? story.layerBounds(fl) : null
+    let key = 'off'
+    if (b) {
+      anchor.set(b.max.x - (b.max.x - b.min.x) * 0.08, (b.min.y + b.max.y) / 2, (b.min.z + b.max.z) / 2).project(camera)
+      if (anchor.z < 1) key = `${(((anchor.x + 1) / 2) * size.width).toFixed(1)},${(((1 - anchor.y) / 2) * size.height).toFixed(1)}`
+    }
+    if (key !== lastAnchor) {
+      lastAnchor = key
+      const st = document.documentElement.style
+      if (key === 'off') st.setProperty('--callout-on', '0')
+      else {
+        const [x, y] = key.split(',')
+        st.setProperty('--callout-x', x)
+        st.setProperty('--callout-y', y)
+        st.setProperty('--callout-on', '1')
+      }
+    }
 
     if (Math.abs(cur.dark - lastDark) > 0.002) {
       lastDark = cur.dark

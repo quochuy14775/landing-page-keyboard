@@ -1,3 +1,5 @@
+import type { Box3, Ray } from 'three'
+
 // Shared, mutable scene state. Scroll handlers write `goal`; the 3D loop damps
 // `cur` toward it. Nothing here goes through React state, so scrolling never
 // re-renders the component tree.
@@ -45,6 +47,12 @@ export const story = {
   held: null as string | null,
   /** 0..11 index of the layer the structure section is talking about, -1 none */
   focusLayer: -1,
+  /** 3D viewer: layer isolated for close inspection (index into the layer stack), -1 none */
+  isolate: -1,
+  /** set by the keyboard: index of the layer a world-space ray hits first, -1 none */
+  pickLayer: null as ((ray: Ray) => number) | null,
+  /** set by the keyboard: current world-space bounds of a layer */
+  layerBounds: null as ((i: number) => Box3) | null,
   interactive: true,
   reducedMotion: false,
   invalidate: () => {},

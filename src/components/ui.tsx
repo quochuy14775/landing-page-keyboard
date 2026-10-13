@@ -48,11 +48,48 @@ export function WordsIn({ text, className, delay = 0 }: { text: string; classNam
   )
 }
 
-export function Eyebrow({ children, dark = false }: { children: ReactNode; dark?: boolean }) {
+const CHAPTERS_TOTAL = 7
+
+/** Section label; with `index` it reads like a chapter marker: "01 / 07 — Keycap". */
+export function Eyebrow({ children, dark = false, index }: { children: ReactNode; dark?: boolean; index?: number }) {
   return (
-    <p className={`mb-4 font-mono text-[11px] font-medium tracking-[0.22em] uppercase ${dark ? 'text-ice-200' : 'text-ice-600'}`}>
-      {children}
+    <p className={`mb-4 flex items-center gap-3 font-mono text-[11px] font-medium tracking-[0.22em] uppercase ${dark ? 'text-ice-200' : 'text-ice-600'}`}>
+      {index !== undefined && (
+        <>
+          <span className="tabular-nums">
+            {String(index).padStart(2, '0')}
+            <span className="opacity-50"> / {String(CHAPTERS_TOTAL).padStart(2, '0')}</span>
+          </span>
+          <span className={`h-px w-6 ${dark ? 'bg-ice-200/50' : 'bg-ice-600/40'}`} aria-hidden />
+        </>
+      )}
+      <span>{children}</span>
     </p>
+  )
+}
+
+const ICONS = {
+  grid: 'M4 5h16v14H4zM4 10h16M4 14.5h16M9 10v9M14 10v9',
+  layers: 'm12 3 9 4.5-9 4.5-9-4.5zM3 12l9 4.5 9-4.5M3 16.5 12 21l9-4.5',
+  signal: 'M5 20v-3M10 20v-7M15 20v-11M20 20V4',
+  battery: 'M3 8h15v8H3zM18 10.5h2v3h-2M6 11v2M9 11v2',
+  curve: 'M3 17c3-8 15-8 18 0M3 17h18',
+  type: 'M5 6V4h14v2M12 4v16M9 20h6',
+  volume: 'M11 5 6 9H3v6h3l5 4zM15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13',
+  wave: 'M2 12h2l2-6 3 12 3-15 3 15 3-9 2 3h2',
+  plate: 'M3 6h18v12H3zM7 9h3v3H7zM14 9h3v3h-3zM7 14h10',
+  switch: 'M7 3h10v6H7zM5 9h14v8H5zM10 17v4M14 17v4',
+  sparkle: 'M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M6 18l2.5-2.5M15.5 8.5 18 6',
+  devices: 'M3 5h13v10H3zM1 19h17M18 9h5v12h-5zM20.5 18h.01',
+  arrow: 'M5 12h14M13 6l6 6-6 6',
+} as const
+export type IconName = keyof typeof ICONS
+
+export function Icon({ name, className = 'h-5 w-5' }: { name: IconName; className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden>
+      <path d={ICONS[name]} />
+    </svg>
   )
 }
 

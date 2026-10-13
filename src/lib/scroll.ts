@@ -84,9 +84,11 @@ export function useStoryTrigger(ref: RefObject<HTMLElement | null>, opts: Opts) 
       onLeave: edge === 'last' ? () => apply(1) : undefined,
     })
     // a reload in the middle/top of the page: let the owning section paint its shot
+    // (compare the real scroll position: progress is clamped and reads 0/1 before layout settles)
+    const y = st.scroll()
     if (st.isActive) apply(st.progress)
-    else if (edge === 'first' && st.progress === 0) apply(0)
-    else if (edge === 'last' && st.progress === 1) apply(1)
+    else if (edge === 'first' && y <= st.start) apply(0)
+    else if (edge === 'last' && y >= st.end && st.end > st.start) apply(1)
     return () => st.kill()
   }, [ref, path, weights, start, end, onProgress, edge])
 }

@@ -23,7 +23,7 @@ export default function Experience() {
       <Canvas
         frameloop="demand"
         dpr={dpr}
-        camera={{ fov: 32, near: 0.01, far: 20, position: [0.2, 0.3, 0.46] }}
+        camera={{ fov: 32, near: 0.02, far: 6, position: [0.2, 0.3, 0.46] }}
         gl={{ antialias: true, alpha: true, powerPreference: 'high-performance' }}
         onCreated={({ gl }) => {
           gl.toneMapping = THREE.AgXToneMapping
@@ -32,7 +32,9 @@ export default function Experience() {
         eventSource={document.getElementById('root')!}
         eventPrefix="client"
       >
-        <PerformanceMonitor onDecline={() => setDpr(1)} onIncline={() => setDpr(1.5)} />
+        {/* step down once on a slow device and stay there: every DPR change reallocates
+            the canvas buffer, and flip-flopping during camera moves showed up as flashes */}
+        <PerformanceMonitor flipflops={1} onDecline={() => setDpr(1)} onFallback={() => setDpr(1)} />
         <StudioLights />
 
         <Environment resolution={256} frames={1}>
@@ -47,7 +49,7 @@ export default function Experience() {
         <Suspense fallback={null}>
           <Keyboard />
           <RgbHalo />
-          <ContactShadows position={[0, -0.0005, 0]} scale={0.7} far={0.08} blur={2.4} opacity={0.6} resolution={512} frames={1} />
+          <ContactShadows position={[0, -0.0012, 0]} scale={0.7} far={0.08} blur={2.4} opacity={0.6} resolution={512} frames={1} />
         </Suspense>
 
         <CameraRig />

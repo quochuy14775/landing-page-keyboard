@@ -3,6 +3,7 @@ import { useMemo, useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import { story } from '../lib/story'
+import { ledFx, PALETTE_GLSL, PLATE_D, PLATE_W } from './palette'
 
 // Studio light levels for the bright page. They fade toward NIGHT_KEEP as the
 // RGB scene darkens, so the LEDs become the main light source.
@@ -38,15 +39,17 @@ void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(
 `
 const haloFrag = /* glsl */ `
 uniform float uTime; uniform float uIntensity; varying vec2 vUv;
-vec3 hue(float h) { return clamp(abs(mod(h * 6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0); }
+${PALETTE_GLSL}
 void main() {
-  vec2 p = (vUv - 0.5) * vec2(2.0, 2.0);
-  // soft rounded-rect falloff that hugs the keyboard footprint
-  vec2 q = abs(p) - vec2(0.62, 0.42);
+  // plane is 0.40 x 0.22 m; the inner box is the case footprint (0.323 x 0.143 m),
+  // light only spills a few centimetres past the case edge
+  vec2 p = (vUv - 0.5) * 2.0;
+  vec2 q = abs(p) - vec2(0.81, 0.65);
   float d = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
-  float a = exp(-max(d, 0.0) * 18.0) * smoothstep(0.9, 0.6, length(p * vec2(0.85, 1.1)));
-  vec3 c = hue(vUv.x * 0.9 - uTime * 0.12);
-  gl_FragColor = vec4(c * a * uIntensity * 0.28, 1.0);
+  float a = d < 0.0 ? 0.0 : exp(-d * 14.0) * smoothstep(0.0, 0.02, d);
+  vec2 lp = (vUv - 0.5) * vec2(0.4, 0.22);
+  vec3 c = ledFx(clamp(lp / vec2(${PLATE_W}, ${PLATE_D}) + 0.5, 0.0, 1.0), lp);
+  gl_FragColor = vec4(c * a * uIntensity * 0.6, 1.0);
 }
 `
 
@@ -57,8 +60,15 @@ export function RgbHalo() {
       new THREE.ShaderMaterial({
         vertexShader: haloVert,
         fragmentShader: haloFrag,
-        uniforms: { uTime: { value: 0 }, uIntensity: { value: 0 } },
-        blending: THREE.AdditiveBlending,
+        uniforms: { uTime: { value: 0 }, uIntensity: { value: 0 }, ...ledFx },
+        // add light to the colour only: plain additive blending also adds alpha, which
+        // paints opaque black over the page wherever the canvas is transparent
+        blending: THREE.CustomBlending,
+        blendEquation: THREE.AddEquation,
+        blendSrc: THREE.OneFactor,
+        blendDst: THREE.OneFactor,
+        blendSrcAlpha: THREE.ZeroFactor,
+        blendDstAlpha: THREE.OneFactor,
         depthWrite: false,
         transparent: true,
         toneMapped: false,
@@ -79,8 +89,8 @@ export function RgbHalo() {
   })
 
   return (
-    <mesh ref={mesh} material={mat} rotation-x={-Math.PI / 2} position={[0, 0.0004, 0]} visible={false} renderOrder={-1}>
-      <planeGeometry args={[0.62, 0.36]} />
+    <mesh ref={mesh} material={mat} rotation-x={-Math.PI / 2} position={[0, -0.0009, 0]} visible={false} renderOrder={-1}>
+      <planeGeometry args={[0.4, 0.22]} />
     </mesh>
   )
 }

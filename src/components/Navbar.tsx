@@ -129,6 +129,37 @@ function BuyButton({ compact = false, onClick }: { compact?: boolean; onClick?: 
   )
 }
 
+function View3DLink({ dark, big = false }: { dark: boolean; big?: boolean }) {
+  return (
+    <motion.a
+      href="/trai-nghiem-3d"
+      initial="rest"
+      whileHover="hover"
+      whileTap={{ scale: 0.96 }}
+      className={`group flex items-center gap-2 rounded-xl font-semibold ring-1 outline-none focus-visible:ring-2 focus-visible:ring-ice-400 ${
+        big ? 'h-12 px-5 text-base' : 'h-10 px-3 text-sm'
+      } ${dark ? 'text-white ring-white/15 hover:bg-white/10' : 'bg-white/70 text-ink ring-ice-100 hover:bg-white'}`}
+    >
+      <motion.svg
+        width="16"
+        height="16"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+        aria-hidden
+        variants={{ rest: { rotate: 0 }, hover: { rotate: 180 } }}
+        transition={{ duration: 0.6, ease: EASE }}
+      >
+        <path d="M12 2.5 20.5 7v10L12 21.5 3.5 17V7z" />
+        <path d="M3.5 7 12 11.5 20.5 7M12 11.5v10" />
+      </motion.svg>
+      Xem 3D
+    </motion.a>
+  )
+}
+
 export function Header() {
   const active = useActiveChapter()
   const activeId = CHAPTERS[active].id
@@ -210,6 +241,9 @@ export function Header() {
           </nav>
 
           <div className="flex items-center gap-2">
+            <div className="hidden md:block">
+              <View3DLink dark={dark && !menu} />
+            </div>
             <SoundToggle dark={dark && !menu} />
             <div className="hidden sm:block">
               <BuyButton compact />
@@ -312,7 +346,10 @@ function MobileMenu({ open, onClose, current }: { open: boolean; onClose: () => 
               <p className="text-sm font-bold">{PRODUCT.name}</p>
               <p className="text-xs text-mute">{PRODUCT.price ? formatVnd(PRODUCT.price) : 'Liên hệ để có giá tốt'}</p>
             </div>
-            <BuyButton onClick={() => go('mua-ngay')} />
+            <div className="flex gap-2">
+              <View3DLink dark={false} big />
+              <BuyButton onClick={() => go('mua-ngay')} />
+            </div>
           </motion.div>
         </motion.div>
       )}
